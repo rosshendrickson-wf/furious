@@ -103,7 +103,6 @@ def _incomplete_asyncs(marker):
 
 def deque_take(n, iterable):
     """Will return a deque of islice of an iterable."""
-
     return deque(islice(iterable, n))
 
 
@@ -163,7 +162,7 @@ def apply_updates(updates, marker):
     finishes going through all of the updates."""
 
     incomplete = False
-    # Determine a good batch size
+    # TODO Determine a good batch size
     batch_size = 100
     while True:
 

@@ -278,4 +278,3 @@ def _task_batcher(tasks, batch_size=None):
 
     args = [iter(tasks)] * batch_size
     return ([task for task in group if task] for group in izip_longest(*args))
-

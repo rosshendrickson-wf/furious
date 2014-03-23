@@ -22,13 +22,14 @@ class FuriousResult(ndb.Model):
 
 def store_async_result(async_id, result):
     """Persist the Async's result to the datastore."""
-
     # TODO: Need to handle if we run into exceptions here
     FuriousResult(id=async_id, payload=result).put()
 
 
 def store_async_marker(async):
     """Persist a marker indicating the Async ran in the datastore."""
+    if not async:
+        return
 
     FuriousMarker(id=async.id).put()
     Async(target=completion_check).start()
@@ -37,15 +38,16 @@ def store_async_marker(async):
 def load_async_result(async_id):
 
     result = FuriousResult.get_by_id(async_id)
-
-    return result.options
+    if result:
+        return result.options
 
 
 def load_context(context_id):
     """Loads a marker containing the JSON of the stored Contex. Returns a dict
     """
     result = FuriousMarker.get_by_id(context_id)
-    return result.options
+    if result:
+        return result.options
 
 
 def store_context(context_id, context_options):

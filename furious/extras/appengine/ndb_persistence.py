@@ -65,16 +65,16 @@ def store_context(context_id, context_options):
 
     ndb.put_multi(markers)
 
+INCOMPLETE = 0
+COMPLETE = 1
+FAILED = -1
+
 
 class CompletionMarker(ndb.Model):
 
     complete = ndb.BooleanProperty(indexed=False, default=False)
     async_state = ndb.JSONProperty(indexed=False)
     on_complete = ndb.JSONProperty(indexed=False)
-
-INCOMPLETE = 0
-COMPLETE = 1
-FAILED = -1
 
 
 @ndb.tasklet()
@@ -130,6 +130,9 @@ def completion_check():
     context = get_current_context()
     completion_marker = CompletionMarker.get_by_id(context.id)
 
+    if not completion_marker:
+        return
+
     if completion_marker.complete:
         return
 
@@ -160,6 +163,8 @@ def apply_updates(updates, marker):
     finishes going through all of the updates."""
 
     incomplete = False
+    # Determine a good batch size
+    batch_size = 100
     while True:
 
         if incomplete:
@@ -167,7 +172,7 @@ def apply_updates(updates, marker):
 
         # A deque is more memory efficient than a list and will help with
         # memory fragmentation on an instance
-        group = deque_take(updates)
+        group = deque_take(batch_size, updates)
 
         if not group:
             break

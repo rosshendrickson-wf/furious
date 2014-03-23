@@ -23,6 +23,7 @@ class FuriousResult(ndb.Model):
 def store_async_result(async_id, result):
     """Persist the Async's result to the datastore."""
 
+    # TODO: Need to handle if we run into exceptions here
     FuriousResult(id=async_id, payload=result).put()
 
 
@@ -51,13 +52,18 @@ def store_context(context_id, context_options):
     """Stores a marker that stores the context as a dictonary."""
 
     marker = FuriousMarker(id=context_id, options=context_options)
-    task_ids = context_options.pop('_task_ids', [])
+    markers = [marker]
     on_complete = context_options.pop('on_complete', {})
-    completion = CompletionMarker(id=context_id)
-    completion.on_complete = on_complete
-    completion.async_state = {task_id: INCOMPLETE for task_id in task_ids}
 
-    ndb.put_multi(marker, completion)
+    if on_complete:
+
+        completion = CompletionMarker(id=context_id)
+        completion.on_complete = on_complete
+        task_ids = context_options.pop('_task_ids', [])
+        completion.async_state = {task_id: INCOMPLETE for task_id in task_ids}
+        markers.append(completion)
+
+    ndb.put_multi(markers)
 
 
 class CompletionMarker(ndb.Model):

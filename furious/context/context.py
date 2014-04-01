@@ -67,11 +67,6 @@ class Context(object):
         self._insert_success_count = 0
         self._insert_failed_count = 0
 
-        id = options.get('id')
-        if not id:
-            id = uuid.uuid4().hex
-        self._id = id
-
         self._persistence_engine = options.get('persistence_engine', None)
         if self._persistence_engine:
             options['persistence_engine'] = reference_to_path(
@@ -79,9 +74,21 @@ class Context(object):
 
         self._options = options
 
+        self._id = self._get_id()
+
         self._insert_tasks = options.pop('insert_tasks', _insert_tasks)
         if not callable(self._insert_tasks):
             raise TypeError('You must provide a valid insert_tasks function.')
+
+    def _get_id(self):
+        """If this async has no id, generate one."""
+        id = self._options.get('id')
+        if id:
+            return id
+
+        id = uuid.uuid4().hex
+        self._options['id'] = id
+        return id
 
     @property
     def id(self):
@@ -126,6 +133,16 @@ class Context(object):
         self._handle_tasks_insert()
 
         self._tasks_inserted = True
+
+        # QUESTION: Should the persist happen before or after the task
+        # insertion?  I feel like this is something that will alter the
+        # behavior of the tasks themselves by adding a callback (check context
+        # complete) to each Async's callback stack.
+
+        # If we are able to and there is a reason to persist... persist.
+        callbacks = self._options.get('callbacks')
+        if self._persistence_engine and callbacks:
+            self.persist()
 
     def _get_tasks_by_queue(self):
         """Return the tasks for this Context, grouped by queue."""

@@ -384,6 +384,17 @@ class Async(object):
         return id
 
     @property
+    def context_id(self):
+        """If this async has a context id, return it; else raise
+        NotInContextError.
+        """
+        context_id = self._options.get('_context_id')
+        if context_id:
+            return context_id
+
+        raise errors.NotInContextError("Context ID not set.")
+
+    @property
     def id(self):
         """Return this Async's ID value."""
         return self._id
@@ -432,6 +443,10 @@ def encode_async_options(async):
     if callbacks:
         options['callbacks'] = encode_callbacks(callbacks)
 
+    if '_context_checker' in options:
+        _checker = options.pop('_context_checker')
+        options['__context_checker'] = reference_to_path(_checker)
+
     return options
 
 
@@ -450,6 +465,10 @@ def decode_async_options(options):
     callbacks = async_options.get('callbacks', {})
     if callbacks:
         async_options['callbacks'] = decode_callbacks(callbacks)
+
+    if '__context_checker' in options:
+        _checker = options['__context_checker']
+        async_options['_context_checker'] = path_to_reference(_checker)
 
     return async_options
 

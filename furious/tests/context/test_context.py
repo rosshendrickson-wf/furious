@@ -178,6 +178,21 @@ class TestContext(unittest.TestCase):
         self.assertEqual(10, ctx.insert_success)
 
     @patch('google.appengine.api.taskqueue.Queue', auto_spec=True)
+    def test_added_asyncs_get_context_id(self, queue_mock):
+        """Ensure Asyncs added to context get context id."""
+        from furious.async import Async
+        from furious.context import Context
+
+        asyncs = [Async('test', id=i) for i in xrange(100, 110)]
+
+        with Context() as ctx:
+            for async in asyncs:
+                ctx.add(async)
+                self.assertEqual(ctx.id, async.get_options()['_context_id'])
+
+        self.assertEqual(10, ctx.insert_success)
+
+    @patch('google.appengine.api.taskqueue.Queue', auto_spec=True)
     def test_added_to_correct_queue(self, queue_mock):
         """Ensure jobs are added to the correct queue."""
         from furious.context import Context
@@ -322,7 +337,7 @@ class TestContext(unittest.TestCase):
         context = Context.from_dict(options)
 
         self.assertEqual(123456, context.id)
-        self.assertEqual([1, 2, 3, 4], context._task_ids)
+        self.assertEqual([1, 2, 3, 4], context.task_ids)
         self.assertEqual(True, context._tasks_inserted)
         self.assertEqual('avalue', context._options.get('random_option'))
         self.assertEqual(_insert_tasks, context._insert_tasks)
@@ -393,8 +408,7 @@ class TestContext(unittest.TestCase):
 
         context.persist()
 
-        persistence_engine.store_context.assert_called_once_with(
-            context.id, context.to_dict())
+        persistence_engine.store_context.assert_called_once_with(context)
 
     def test_load_context(self):
         """Calling load with an engine attempts to load the Context."""

@@ -62,7 +62,6 @@ class Context(object):
     """
     def __init__(self, **options):
         self._tasks = []
-        self._task_ids = []
         self._tasks_inserted = False
         self._insert_success_count = 0
         self._insert_failed_count = 0
@@ -71,6 +70,9 @@ class Context(object):
         self._completion_engine = None
 
         self._options = options
+
+        if '_task_ids' not in self._options:
+            self._options['_task_ids'] = []
 
         self._id = self._get_id()
 
@@ -91,6 +93,10 @@ class Context(object):
     @property
     def id(self):
         return self._id
+
+    @property
+    def task_ids(self):
+        return self._options['_task_ids']
 
     @property
     def insert_success(self):
@@ -147,6 +153,12 @@ class Context(object):
         from furious.async import Async
 
         task_map = {}
+        _checker = None
+
+        # Ask the persistence engine for an Async to use for checking if the
+        # context is complete.
+        if self._persistence_engine:
+            _checker = self._persistence_engine.context_completion_checker
 
         for async in self._tasks:
             if self._options.get('callbacks'):
@@ -157,10 +169,54 @@ class Context(object):
                     args=[self.id])
 
             queue = async.get_queue()
+            if _checker:
+                async.update_options(_context_checker=_checker)
+
             task = async.to_task()
             task_map.setdefault(queue, []).append(task)
 
         return task_map
+
+    def _prepare_persistence_engine(self):
+        """Load the specified persistence engine, or the default if none is
+        set.
+        """
+        if self._persistence_engine:
+            return
+
+        persistence_engine = self._options.get('persistence_engine')
+        if persistence_engine:
+            self._persistence_engine = path_to_reference(persistence_engine)
+            return
+
+        from furious.config import get_default_persistence_engine
+
+        self._persistence_engine = get_default_persistence_engine()
+
+    def set_event_handler(self, event, handler):
+        """Add an Async to be run on event."""
+        # QUESTION: Should we raise an exception if `event` is not in some
+        # known event-type list?
+
+        self._prepare_persistence_engine()
+
+        callbacks = self._options.get('callbacks', {})
+        callbacks[event] = handler
+        self._options['callbacks'] = callbacks
+
+    def exec_event_handler(self, event):
+        """Execute the Async set to be run on event."""
+        # QUESTION: Should we raise an exception if `event` is not in some
+        # known event-type list?
+
+        callbacks = self._options.get('callbacks', {})
+
+        handler = callbacks[event]
+
+        if not handler:
+            raise Exception('Handler not defined!!!')
+
+        handler.start()
 
     def add(self, target, args=None, kwargs=None, **options):
         """Add an Async job to this context.
@@ -178,7 +234,10 @@ class Context(object):
         if not isinstance(target, (Async, Message)):
             target = Async(target, args, kwargs, **options)
 
+        target.update_options(_context_id=self.id)
+
         self._tasks.append(target)
+        self._options['_task_ids'].append(target.id)
 
         return target
 
@@ -229,7 +288,7 @@ class Context(object):
             raise RuntimeError(
                 'Specify a valid persistence_engine to persist this context.')
 
-        return self._persistence_engine.store_context(self.id, self.to_dict())
+        return self._persistence_engine.store_context(self)
 
     @classmethod
     def load(cls, context_id, persistence_engine):
@@ -255,7 +314,6 @@ class Context(object):
 
         options.update({
             '_tasks_inserted': self._tasks_inserted,
-            '_task_ids': [async.id for async in self._tasks]
         })
 
         callbacks = self._options.get('callbacks')
@@ -272,7 +330,6 @@ class Context(object):
         context_options = copy.deepcopy(context_options_dict)
 
         tasks_inserted = context_options.pop('_tasks_inserted', False)
-        task_ids = context_options.pop('_task_ids', [])
 
         insert_tasks = context_options.pop('insert_tasks', None)
         if insert_tasks:
@@ -292,7 +349,6 @@ class Context(object):
         context = cls(**context_options)
 
         context._tasks_inserted = tasks_inserted
-        context._task_ids = task_ids
 
         return context
 

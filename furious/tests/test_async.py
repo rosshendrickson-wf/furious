@@ -226,6 +226,27 @@ class TestAsync(unittest.TestCase):
         self.assertEqual(job.id, 'newid')
         self.assertEqual(job.get_options()['id'], 'newid')
 
+    def test_context_id(self):
+        """Ensure context_id returns the context_id."""
+        from furious.async import Async
+
+        job = Async('somehting')
+        job.update_options(_context_id='blarghahahaha')
+        self.assertEqual(job.context_id, 'blarghahahaha')
+
+    def test_no_context_id(self):
+        """Ensure calling context_id when none exists raises error."""
+        from furious.async import Async
+        from furious.errors import NotInContextError
+
+        job = Async('somehting')
+        try:
+            job.context_id
+        except NotInContextError:
+            return
+
+        raise AssertionError('NotInContextError was not raised.')
+
     def test_decorated_options(self):
         """Ensure the defaults decorator sets Async options."""
         from furious.async import Async
@@ -902,6 +923,32 @@ class TestAsync(unittest.TestCase):
 
         self.assertEqual(
             5, options['task_args']['retry_options']['task_retry_limit'])
+
+    def test_context_checker_encoded(self):
+        """Ensure the _context_checker is correctly encoded in options dict."""
+        from furious.async import Async
+        from furious.async import encode_async_options
+
+        async_job = Async("something", _context_checker=dir)
+        options = encode_async_options(async_job)
+
+        self.assertEqual('dir', options['__context_checker'])
+
+    def test_context_checker_encoded_and_decoded(self):
+        """Ensure the _context_checker is correctly encoded to and decoded from
+        an Async options dict.
+        """
+        from furious.async import Async
+
+        async_job = Async("something", _context_checker=dir)
+
+        encoded_async = async_job.to_dict()
+        self.assertEqual(encoded_async['__context_checker'], 'dir')
+
+        new_async_job = Async.from_dict(encoded_async)
+        self.assertEqual(new_async_job.get_options()['_context_checker'], dir)
+
+        self.assertEqual(async_job.to_dict(), new_async_job.to_dict())
 
     def test_retry_value_is_decodable(self):
         """Ensure that from_dict is the inverse of to_dict when retry options

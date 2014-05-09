@@ -148,15 +148,13 @@ class Context(object):
 
         task_map = {}
 
-        callbacks = self._options.get('callbacks')
-
-        self._prepare_completion_engine()
-        complete = Async(self.completion_engine.check_context_complete,
-                         args=[self.id])
-
         for async in self._tasks:
-            if callbacks:
-                async.get_options()['_check_context'] = complete
+            if self._options.get('callbacks'):
+
+                self._prepare_completion_engine()
+                async.get_options()['_check_context'] = Async(
+                    self.completion_engine.check_context_complete,
+                    args=[self.id])
 
             queue = async.get_queue()
             task = async.to_task()

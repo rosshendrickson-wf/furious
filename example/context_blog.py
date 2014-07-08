@@ -113,6 +113,8 @@ def make_stuff_happy_async(happy_map_key, section_keys):
 
 
 def _make_happy_complete(happy_map_key_id):
+    """Simple Completion handler that verifies what work was done during the
+    fan out phase and then updates a map that is used elsewhere."""
 
     _, context = get_current_async_with_context()
 
@@ -157,7 +159,10 @@ def make_stuff_happy(happy_map_key, section_keys):
 
 @ndb.transactional
 def make_happy(entity_key):
+    """Update a single property on an entity in a transaction.
+    """
 
+    logging.info("Make Happy with %s" % entity_key)
     # Just to keep things DRY between the async and the serial versions
     if isinstance(entity_key, unicode):
         entity_key = ndb.Key(urlsafe=entity_key)

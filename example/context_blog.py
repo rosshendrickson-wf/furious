@@ -36,22 +36,25 @@ from google.appengine.ext import ndb
 
 
 class BlogCompletionHandler(webapp2.RequestHandler):
-    """Demonstrate using Context Events to make work flows."""
+    """Demonstrate Differences between serial and async processes.
+    """
     def get(self):
 
         count = self.request.get('tasks', 5)
 
-        start_happy(int(count))
+        Async(start_happy, args=[int(count)]).start()
 
         logging.info('Async jobs for context batch inserted.')
 
         self.response.out.write(
-            'Successfully inserted a test group of %s jobs.' % count)
+            'Successfully started a test group of %s jobs.' % count)
 
 
-class Section(ndb.Model):
+class ExampleSection(ndb.Model):
 
     happy = ndb.BooleanProperty(indexed=False, default=False)
+    _use_cache = False
+    _use_memcache = False
 
 
 class HappyMap(ndb.Model):
@@ -61,6 +64,9 @@ class HappyMap(ndb.Model):
     end = ndb.DateTimeProperty(auto_now=True)
 
     def update_section(self, section_id, section_happy):
+
+        if not self.data:
+            self.data = {}
 
         self.data[section_id] = section_happy
 
@@ -75,8 +81,8 @@ def start_happy(num_sections):
 
     for num in xrange(num_sections):
 
-        serial_section = Section()
-        async_section = Section()
+        serial_section = ExampleSection()
+        async_section = ExampleSection()
 
         # Serial insertions, for simplicty of code, not performance
         ndb.put_multi((serial_section, async_section))
@@ -88,12 +94,24 @@ def start_happy(num_sections):
     ndb.put_multi((serial_map, async_map))
 
     # this will cause some delay for the serial because the asyncs need
-    # to be inserted
-    make_stuff_happy_async(async_map.key, async_section_keys)
+    # to be inserted but we restart the start time at the beginning of the
+    # serial call
+    make_stuff_happy_async(async_map.key, async_section_keys,
+                           serial_map.key.urlsafe())
     make_stuff_happy(serial_map.key, serial_section_keys)
 
+    logging.info("Async map key %s" % async_map.key.id())
 
-def make_stuff_happy_async(happy_map_key, section_keys):
+    # Clean up our test entities from the datastore - 20 minutes later
+    Async(_cleanup_test, args=[serial_map.key.urlsafe(),
+                               async_map.key.urlsafe()],
+          task_args={'countdown': 1200}).start()
+
+
+def make_stuff_happy_async(happy_map_key, section_keys, serial_id=None):
+    """Async off the updates to each section and have a completion callback
+    that updates the map.
+    """
 
     # To make the timing more 'accurate'
     happy_map = happy_map_key.get()
@@ -107,12 +125,13 @@ def make_stuff_happy_async(happy_map_key, section_keys):
             async = Async(make_happy, args=[key.urlsafe()])
             ctx.add(async)
 
-        completion_async = Async(_make_happy_complete, args=[happy_map_key_id])
+        completion_async = Async(_make_happy_complete, args=[happy_map_key_id,
+                                                             serial_id])
 
         ctx.set_event_handler('complete', completion_async)
 
 
-def _make_happy_complete(happy_map_key_id):
+def _make_happy_complete(async_map_key_id, serial_map_key_id):
     """Simple Completion handler that verifies what work was done during the
     fan out phase and then updates a map that is used elsewhere."""
 
@@ -131,12 +150,28 @@ def _make_happy_complete(happy_map_key_id):
         happy_sections.append(key.id())
 
     if happy_sections:
-        happy_map_key = ndb.Key(urlsafe=happy_map_key_id)
+        happy_map_key = ndb.Key(urlsafe=async_map_key_id)
         update_happy_map(happy_map_key, happy_sections)
+
+    logging.info("Context Complete %s %s" % (context, context.result))
+
+    # Testing related
+    happy_map = happy_map_key.get()
+    running_time = happy_map.end - happy_map.start
+    logging.info("Total number of sections %s" % len(happy_map.data))
+    logging.info("Async %s took %s seconds" % (
+        happy_map_key.id(), running_time.total_seconds()))
+
+    happy_map_key = ndb.Key(urlsafe=serial_map_key_id)
+    happy_map = happy_map_key.get()
+    running_time = happy_map.end - happy_map.start
+    logging.info("Serial %s took %s seconds" % (
+        happy_map_key.id(), running_time.total_seconds()))
 
 
 def make_stuff_happy(happy_map_key, section_keys):
-
+    """Serially transactionally update each section.
+    """
     # To make the timing more 'accurate'
     happy_map = happy_map_key.get()
     happy_map.start = datetime.utcnow()
@@ -152,9 +187,11 @@ def make_stuff_happy(happy_map_key, section_keys):
     if happy_section_ids:
         update_happy_map(happy_map_key, happy_section_ids)
 
+    # Testing related
     happy_map = happy_map_key.get()
     running_time = happy_map.end - happy_map.start
-    logging.info("Serial took %s seconds" % (running_time.total_seconds()))
+    logging.info("Serial %s took %s seconds" % (
+        happy_map_key.id(), running_time.total_seconds()))
 
 
 @ndb.transactional
@@ -162,7 +199,6 @@ def make_happy(entity_key):
     """Update a single property on an entity in a transaction.
     """
 
-    logging.info("Make Happy with %s" % entity_key)
     # Just to keep things DRY between the async and the serial versions
     if isinstance(entity_key, unicode):
         entity_key = ndb.Key(urlsafe=entity_key)
@@ -176,15 +212,44 @@ def make_happy(entity_key):
 
     current_entity.put()
 
-    return entity_key
+    return entity_key.urlsafe()
 
 
 @ndb.transactional
 def update_happy_map(happy_map_key, happy_section_ids):
-
+    """Transactionally update the Happy Map
+    """
     current_map = happy_map_key.get()
+
+    if not current_map:
+        logging.info("No map found. Aborting")
+        return
 
     for happy_section in happy_section_ids:
         current_map.update_section(happy_section, True)
 
     current_map.put()
+
+
+def _cleanup_test(serial_urlsafe, async_urlsafe):
+    """Clean up our entities used running this example.
+    """
+
+    serial_map_key = ndb.Key(urlsafe=serial_urlsafe)
+    async_map_key = ndb.Key(urlsafe=serial_urlsafe)
+
+    entity_keys = [serial_map_key, async_map_key]
+    serial_map, async_map = ndb.get_multi(entity_keys)
+
+    serial_keys = [ndb.Key(ExampleSection, section_id)
+                   for section_id in serial_map.data.iterkeys()]
+
+    async_keys = [ndb.Key(ExampleSection, section_id)
+                  for section_id in async_map.data.iterkeys()]
+
+    entity_keys.extend(serial_keys)
+    entity_keys.extend(async_keys)
+
+    ndb.delete_multi(entity_keys)
+
+    logging.info("Deleted %s example entities" % len(entity_keys))

@@ -35,6 +35,7 @@ from .complex_workflow import ComplexWorkflowHandler
 from .context_intro import ContextIntroHandler
 from .context_events import ContextEventsHandler
 from .context_completion_with_results import ContextCompletionHandler
+from .context_blog import BlogCompletionHandler
 from .grep import GrepHandler
 from .simple_workflow import SimpleWorkflowHandler
 from .limits import LimitHandler
@@ -51,6 +52,7 @@ app = webapp2.WSGIApplication([
     ('/context', ContextIntroHandler),
     ('/context/event', ContextEventsHandler),
     ('/context/completion', ContextCompletionHandler),
+    ('/context/blog', BlogCompletionHandler),
     ('/callback', AsyncCallbackHandler),
     ('/callback/error', AsyncErrorCallbackHandler),
     ('/callback/async', AsyncAsyncCallbackHandler),

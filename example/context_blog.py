@@ -29,6 +29,7 @@ from datetime import datetime
 
 from furious import context
 from furious.async import Async
+from furious.context import get_current_async_with_context
 
 import webapp2
 from google.appengine.ext import ndb
@@ -113,14 +114,11 @@ def make_stuff_happy_async(happy_map_key, section_keys):
 
 def _make_happy_complete(happy_map_key_id):
 
-    from furious.context import get_current_async_with_context
-
     _, context = get_current_async_with_context()
 
     if not context:
         return
 
-    happy_documents = []
     happy_sections = []
 
     for async_id, async_result in context.result.items():
@@ -132,7 +130,7 @@ def _make_happy_complete(happy_map_key_id):
 
     if happy_sections:
         happy_map_key = ndb.Key(urlsafe=happy_map_key_id)
-        update_happy_map(happy_map_key, happy_sections, happy_documents)
+        update_happy_map(happy_map_key, happy_sections)
 
 
 def make_stuff_happy(happy_map_key, section_keys):
@@ -150,8 +148,7 @@ def make_stuff_happy(happy_map_key, section_keys):
             happy_section_ids.append(section_key.id())
 
     if happy_section_ids:
-        update_happy_map(
-            happy_map_key, happy_section_ids)
+        update_happy_map(happy_map_key, happy_section_ids)
 
     happy_map = happy_map_key.get()
     running_time = happy_map.end - happy_map.start

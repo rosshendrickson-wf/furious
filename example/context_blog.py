@@ -99,7 +99,7 @@ def make_stuff_happy_async(happy_map_key, section_keys):
     happy_map.start = datetime.utcnow()
     happy_map.put()
 
-    happy_map_key_id = happy_map_key.id()
+    happy_map_key_id = happy_map_key.urlsafe()
 
     with context.new(persist_async_results=True) as ctx:
         for key in section_keys:

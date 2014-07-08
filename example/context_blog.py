@@ -14,13 +14,27 @@
 # limitations under the License.
 #
 
-"""Example of using Context events for work flow.
+"""
+This example was used in a blog post to illustrate the differences between a
+serial process and an async process and the advantages of using a contexet and
+its completion callback function instead of a serial process that does a series
+of work and then a final function over all the things that were iterated over
 
-This example creates a context with events, then adds a few Async jobs to the
-Context. This is to illustrate the differences between a serial process and
-an async process.
+for n in ns:
+    do_thing(n)
 
-db models were chosen to avoid caching related timing influences
+update_a_for_ns(ns)
+
+where do_thing and update_for_ns are doing transactional writes on datastore
+entities.
+
+The ExampleSection ndb model has its caching disabled to simulate working with
+db or cold entities.
+
+If you run this on an appspot you can peice the performance data together by
+searching for the _make_happy_complete call and the start_happy call. Both
+will log out information about timing. If you run this on the dev appserver
+the async will always be slower.
 """
 
 

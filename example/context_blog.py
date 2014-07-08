@@ -16,14 +16,16 @@
 
 """
 This example was used in a blog post to illustrate the differences between a
-serial process and an async process and the advantages of using a contexet and
+serial process and an async process and the advantages of using a context and
 its completion callback function instead of a serial process that does a series
 of work and then a final function over all the things that were iterated over
 
+results = []
 for n in ns:
-    do_thing(n)
+    result = do_thing(n)
+    results.append(result)
 
-update_a_for_ns(ns)
+update_a(results)
 
 where do_thing and update_for_ns are doing transactional writes on datastore
 entities.
@@ -31,7 +33,7 @@ entities.
 The ExampleSection ndb model has its caching disabled to simulate working with
 db or cold entities.
 
-If you run this on an appspot you can peice the performance data together by
+If you run this on an appspot you can piece the performance data together by
 searching for the _make_happy_complete call and the start_happy call. Both
 will log out information about timing. If you run this on the dev appserver
 the async will always be slower.
@@ -61,7 +63,7 @@ class BlogCompletionHandler(webapp2.RequestHandler):
         logging.info('Async jobs for context batch inserted.')
 
         self.response.out.write(
-            'Successfully started a test group of %s jobs.' % count)
+            'Successfully started two test groups of %s sections.' % count)
 
 
 class ExampleSection(ndb.Model):
@@ -78,6 +80,8 @@ class HappyMap(ndb.Model):
     end = ndb.DateTimeProperty(auto_now=True)
 
     def update_section(self, section_id, section_happy):
+        """Update an entry in the entity's data map.
+        """
 
         if not self.data:
             self.data = {}

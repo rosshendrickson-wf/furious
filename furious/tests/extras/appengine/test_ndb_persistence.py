@@ -163,8 +163,13 @@ class StoreAsyncMarkerTestCase(NdbTestBase):
         self.assertEqual(marker.result, result)
         self.assertEqual(marker.status, 1)
 
-    def test_store_async_exception(self):
+    @patch('furious.extras.appengine.ndb_persistence.get_current_context')
+    def test_store_async_exception(self, get_context):
         """Ensure an async exception is encoded correctly."""
+
+        context = Context(id="a")
+        get_context.return_value = context
+
         async_id = "asyncid"
         async_result = AsyncResult()
         try:

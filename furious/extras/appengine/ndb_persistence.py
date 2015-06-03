@@ -29,6 +29,7 @@ from random import shuffle
 from google.appengine.ext import ndb
 
 from furious.context.context import ContextResultBase
+from furious.context import get_current_context
 from furious import config
 
 CLEAN_QUEUE = config.get_completion_cleanup_queue()
@@ -70,6 +71,7 @@ class FuriousAsyncMarker(ndb.Model):
 
     result = ndb.JsonProperty(indexed=False, compressed=True)
     status = ndb.IntegerProperty(indexed=False)
+    parent_key = ndb.KeyProperty(indexed=True)
 
     @property
     def success(self):
@@ -163,9 +165,19 @@ def _completion_checker(async_id, context_id):
     context = FuriousContext.from_id(context_id)
     marker = FuriousCompletionMarker.get_by_id(context_id)
 
+    if not marker:
+        return False
+
     if marker and marker.complete:
         logging.info("Context %s already complete" % context_id)
         return True
+
+    query = FuriousAsyncMarker.query(
+        FuriousAsyncMarker.parent_key == marker.key)
+    results = query.fetch(keys_only=True)
+
+    if len(results) != len(context.task_ids):
+        return False
 
     task_ids = context.task_ids
     if async_id in task_ids:
@@ -299,9 +311,12 @@ def store_async_result(async_id, async_result):
 
     logging.debug("Storing result for %s", async_id)
 
+    context = get_current_context()
+    context_key = ndb.Key(FuriousCompletionMarker, context.id)
+
     key = FuriousAsyncMarker(
         id=async_id, result=json.dumps(async_result.to_dict()),
-        status=async_result.status).put()
+        status=async_result.status, parent_key=context_key).put()
 
     logging.debug("Setting Async result %s using marker: %s.", async_result,
                   key)

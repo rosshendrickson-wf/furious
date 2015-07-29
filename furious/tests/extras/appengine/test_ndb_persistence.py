@@ -18,6 +18,7 @@ import os
 import unittest
 
 from google.appengine.ext import testbed
+from google.appengine.ext import ndb
 from google.appengine.datastore import datastore_stub_util
 from google.appengine.runtime.apiproxy_errors import DeadlineExceededError
 
@@ -38,7 +39,6 @@ from furious.extras.appengine.ndb_persistence import FuriousAsyncMarker
 from furious.extras.appengine.ndb_persistence import FuriousContext
 from furious.extras.appengine.ndb_persistence import FuriousCompletionMarker
 from furious.extras.appengine.ndb_persistence import iter_context_results
-from furious.extras.appengine.ndb_persistence import store_async_marker
 from furious.extras.appengine.ndb_persistence import store_async_result
 from furious.extras.appengine.ndb_persistence import store_context
 from furious.extras.appengine.ndb_persistence import _check_markers
@@ -144,9 +144,11 @@ class StoreAsyncMarkerTestCase(NdbTestBase):
 
     def test_marker_does_not_exist(self):
         """Ensure the marker is saved if it does not already exist."""
-        async_id = "asyncid"
 
-        store_async_marker(async_id, 0)
+        async_id = "asyncid"
+        job = Async(id=async_id, target=dir, persist_result=True)
+        job._executed = True
+        store_async_result(job)
 
         self.assertIsNotNone(FuriousAsyncMarker.get_by_id(async_id))
 
@@ -154,9 +156,13 @@ class StoreAsyncMarkerTestCase(NdbTestBase):
         """Ensure the marker is not saved if it already exists."""
         async_id = "asyncid"
         result = '{"foo": "bar"}'
+
         FuriousAsyncMarker(id=async_id, result=result, status=1).put()
 
-        store_async_marker(async_id, 1)
+        job = Async(id=async_id, target=dir, persist_result=True)
+        job._executed = True
+
+        store_async_result(job)
 
         marker = FuriousAsyncMarker.get_by_id(async_id)
 
@@ -172,16 +178,27 @@ class StoreAsyncMarkerTestCase(NdbTestBase):
 
         async_id = "asyncid"
         async_result = AsyncResult()
+
+        job = Async(id=async_id, target=dir, persist_result=True)
+        job._executed = True
+
         try:
             raise Exception()
         except Exception, e:
             async_result.payload = encode_exception(e)
             async_result.status = async_result.ERROR
 
-        store_async_result(async_id, async_result)
+        job._result = async_result
 
-        marker = FuriousAsyncMarker.get_by_id(async_id)
+        store_async_result(job)
 
+        context_key = ndb.Key(FuriousCompletionMarker, context.id)
+        marker_key = ndb.Key(
+            FuriousAsyncMarker, async_id)
+        marker = marker_key.get()
+        #marker = FuriousAsyncMarker.get_by_id(async_id)
+
+        self.assertIsNotNone(marker)
         self.assertEqual(marker.result, json.dumps(async_result.to_dict()))
         self.assertEqual(marker.status, async_result.ERROR)
 

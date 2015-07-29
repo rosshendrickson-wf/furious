@@ -71,7 +71,6 @@ class FuriousAsyncMarker(ndb.Model):
 
     result = ndb.JsonProperty(indexed=False, compressed=True)
     status = ndb.IntegerProperty(indexed=False)
-    parent_key = ndb.KeyProperty(indexed=True)
 
     @property
     def success(self):
@@ -138,14 +137,21 @@ class ContextResult(ContextResultBase):
 def context_completion_checker(async):
     """Persist async marker and async the completion check"""
 
-    store_async_marker(async.id, async.result.status if async.result else -1)
+    store_async_result(async)
 
     logging.debug("Async check completion for: %s", async.context_id)
-    current_queue = _get_current_queue()
+
+    # Check if we are complete
+
+    # If we were not complete then insert tail behind
+
     from furious.async import Async
+
+    current_queue = _get_current_queue()
     logging.debug("Completion Check queue:%s", current_queue)
     Async(_completion_checker, queue=current_queue,
-          args=(async.id, async.context_id)).start()
+          args=(async.id, async.context_id,
+                ), task_args={'name': async.context_id}).start()
 
     return True
 
@@ -163,30 +169,38 @@ def _completion_checker(async_id, context_id):
         return
 
     context = FuriousContext.from_id(context_id)
-    marker = FuriousCompletionMarker.get_by_id(context_id)
 
-    if not marker:
-        return False
+    not_complete = True
+    count = 0
+    while not_complete:
 
-    if marker and marker.complete:
-        logging.info("Context %s already complete" % context_id)
-        return True
+        marker = FuriousCompletionMarker.get_by_id(context_id)
 
-    query = FuriousAsyncMarker.query(
-        FuriousAsyncMarker.parent_key == marker.key)
-    results = query.fetch(keys_only=True)
+        if not marker:
+            return False
 
-    if len(results) != len(context.task_ids):
-        return False
+        if marker and marker.complete:
+            logging.info("Context %s already complete" % context_id)
+            return True
 
-    task_ids = context.task_ids
-    if async_id in task_ids:
-        task_ids.remove(async_id)
+        query = FuriousAsyncMarker.query(ancestor=marker.key)
+        results = query.fetch(keys_only=True)
 
-    logging.debug("Loaded context.")
-    logging.debug(task_ids)
+        if len(results) == len(context.task_ids):
+            logging.info("finally complete")
+            not_complete = False
 
-    done, has_errors = _check_markers(task_ids)
+        logging.info("completion not complete {}:{}:{}".format(
+            count, len(results), len(context.task_ids)))
+        count += 1
+
+        if count > 10000:
+            not_complete = False
+
+        #if len(results) != len(context.task_ids):
+        #    return False
+
+    done, has_errors = _check_markers(context.task_ids)
 
     if not done:
         return False
@@ -306,26 +320,27 @@ def store_context(context):
     return key
 
 
-def store_async_result(async_id, async_result):
+def store_async_result(async):
     """Persist the Async's result to the datastore."""
 
-    logging.debug("Storing result for %s", async_id)
+    logging.debug("Storing result for %s", async.id)
 
-    context = get_current_context()
-    context_key = ndb.Key(FuriousCompletionMarker, context.id)
+    status = async.result.status if async.result else -1
+    result = None
 
-    key = FuriousAsyncMarker(
-        id=async_id, result=json.dumps(async_result.to_dict()),
-        status=async_result.status, parent_key=context_key).put()
+    if async.result:
+        result = json.dumps(async.result.to_dict())
 
-    logging.debug("Setting Async result %s using marker: %s.", async_result,
-                  key)
+    if not async.context_id:
+        _save_async_results(async.id, result, status)
+        return
+
+    context_key = ndb.Key(FuriousCompletionMarker, async.context_id)
+    _save_async_results(async.id, result, status, context_key)
 
 
-def store_async_marker(async_id, status):
-    """Persist a marker indicating the Async ran to the datastore."""
-
-    logging.debug("Attempting to mark Async %s complete.", async_id)
+def _save_async_results(async_id, result, status, parent_key=None):
+    """Will save the marker if there is not an already existing marker"""
 
     # QUESTION: Do we trust if the marker had a flag result to just trust it?
     marker = FuriousAsyncMarker.get_by_id(async_id)
@@ -334,10 +349,11 @@ def store_async_marker(async_id, status):
         logging.debug("Marker already exists for %s.", async_id)
         return
 
-    # TODO: Handle exceptions and retries here.
-    key = FuriousAsyncMarker(id=async_id, status=status).put()
+    key = FuriousAsyncMarker(
+        id=async_id, result=result, status=status, parent=parent_key).put()
 
-    logging.debug("Marked Async complete using marker: %s.", key)
+    logging.debug("Setting Async result %s using marker: %s to status %s.",
+                  result, key, status)
 
 
 def iter_context_results(context, batch_size=10, task_cache=None):

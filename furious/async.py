@@ -171,7 +171,7 @@ class Async(object):
         self._prepare_persistence_engine()
 
         return self._persistence_engine.store_async_result(
-            self.id, self.result)
+            self)
 
     @property
     def function_path(self):
@@ -392,28 +392,6 @@ class Async(object):
 
         self._persistence_engine = get_default_persistence_engine()
 
-    def _get_context_id(self):
-        """If this async is in a context set the context id."""
-
-        from furious.context import get_current_context
-
-        context_id = self._options.get('context_id')
-
-        if context_id:
-            return context_id
-
-        try:
-            context = get_current_context()
-        except errors.NotInContextError:
-            context = None
-            self.update_options(context_id=None)
-
-        if context:
-            context_id = context.id
-            self.update_options(context_id=context_id)
-
-        return context_id
-
     def _get_parent_id(self):
         """If this async is in within another async set that async id as the
         parent.
@@ -452,11 +430,6 @@ class Async(object):
     def id(self):
         """Return this Async's ID value."""
         return self._id
-
-    @property
-    def context_id(self):
-        """Return this Async's Context Id if it exists."""
-        return self._context_id
 
     @property
     def parent_id(self):

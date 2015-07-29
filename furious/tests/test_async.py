@@ -680,8 +680,7 @@ class TestAsync(unittest.TestCase):
         job.executing = True
         job.result = result
 
-        persistence_engine.store_async_result.assert_called_once_with(job.id,
-                                                                      result)
+        persistence_engine.store_async_result.assert_called_once_with(job)
 
     @mock.patch('time.sleep')
     @mock.patch('google.appengine.api.taskqueue.Queue', autospec=True)

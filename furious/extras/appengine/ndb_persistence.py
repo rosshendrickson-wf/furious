@@ -28,9 +28,11 @@ from random import shuffle
 
 from google.appengine.ext import ndb
 
-from furious.context.context import ContextResultBase
 from furious.context import get_current_context
+from furious.context.context import ContextResultBase
 from furious import config
+from furious import errors
+
 
 CLEAN_QUEUE = config.get_completion_cleanup_queue()
 DEFAULT_QUEUE = config.get_completion_default_queue()
@@ -142,12 +144,16 @@ def context_completion_checker(async):
     logging.debug("Async check completion for: %s", async.context_id)
 
     # Check if we are complete
+    complete = _query_check(async.context_id)
 
-    # If we were not complete then insert tail behind
+    if complete:
+        return _completion_checker(async.id, async.context_id)
 
+    # If we were not complete then insert the tail behind
     from furious.async import Async
 
     current_queue = _get_current_queue()
+
     logging.debug("Completion Check queue:%s", current_queue)
     Async(_completion_checker, queue=current_queue,
           args=(async.id, async.context_id,
@@ -157,8 +163,32 @@ def context_completion_checker(async):
 
 
 def _get_current_queue():
-
+    """Pull out the queue from the environment"""
     return os.environ.get(QUEUE_HEADER, DEFAULT_QUEUE)
+
+
+def _query_check(context_id):
+    """Use an ancestor query to establish if there is a reason to pull all the
+    markers and check for failure"""
+
+    context = None
+
+    try:
+        context = get_current_context()
+    except errors.NotInContextError:
+        return False
+
+    if not context:
+        return False
+
+    context_key = ndb.Key(FuriousCompletionMarker, context_id)
+
+    query = FuriousAsyncMarker.query(ancestor=context_key)
+    results = query.fetch(keys_only=True)
+
+    if len(results) == len(context.task_ids):
+        logging.info("finally complete")
+        return True
 
 
 def _completion_checker(async_id, context_id):
@@ -169,36 +199,14 @@ def _completion_checker(async_id, context_id):
         return
 
     context = FuriousContext.from_id(context_id)
+    marker = FuriousCompletionMarker.get_by_id(context_id)
 
-    not_complete = True
-    count = 0
-    while not_complete:
+    if not marker:
+        return False
 
-        marker = FuriousCompletionMarker.get_by_id(context_id)
-
-        if not marker:
-            return False
-
-        if marker and marker.complete:
-            logging.info("Context %s already complete" % context_id)
-            return True
-
-        query = FuriousAsyncMarker.query(ancestor=marker.key)
-        results = query.fetch(keys_only=True)
-
-        if len(results) == len(context.task_ids):
-            logging.info("finally complete")
-            not_complete = False
-
-        logging.info("completion not complete {}:{}:{}".format(
-            count, len(results), len(context.task_ids)))
-        count += 1
-
-        if count > 10000:
-            not_complete = False
-
-        #if len(results) != len(context.task_ids):
-        #    return False
+    if marker and marker.complete:
+        logging.info("Context %s already complete" % context_id)
+        return True
 
     done, has_errors = _check_markers(context.task_ids)
 

@@ -141,12 +141,13 @@ def context_completion_checker(async):
 
     store_async_result(async)
 
-    logging.debug("Async check completion for: %s", async.context_id)
+    logging.debug("Check completion for: %s", async.context_id)
 
     # Check if we are complete
     complete = _query_check(async.context_id)
 
     if complete:
+        logging.info("Context complete. Running marker check")
         return _completion_checker(async.id, async.context_id)
 
     # If we were not complete then insert the tail behind
@@ -189,6 +190,9 @@ def _query_check(context_id):
     if len(results) == len(context.task_ids):
         logging.info("finally complete")
         return True
+
+    logging.info("Incomplete context %s %s:%s", context_id,
+                 len(context.task_ids), len(results))
 
 
 def _completion_checker(async_id, context_id):

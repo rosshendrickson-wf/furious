@@ -132,8 +132,9 @@ class ContextResult(ContextResultBase):
     @property
     def _completion_marker(self):
         if not self._marker:
-            self._marker = FuriousCompletionMarker.get_by_id(
-                self._context.id)
+
+            context_key = FuriousCompletionMarker.full_key(self._context.id)
+            self._marker = context_key.get()
 
         return self._marker
 
@@ -402,7 +403,8 @@ def _save_async_results(async_id, result, status, parent_key=None):
 def iter_context_results(context, batch_size=10, task_cache=None):
     """Yield out the results found on the markers for the context task ids."""
 
-    for futures in iget_batches(context.task_ids, batch_size=batch_size):
+    for futures in iget_batches(context.id, context.task_ids,
+                                batch_size=batch_size):
         for key, future in futures:
             task = future.get_result()
 
@@ -412,12 +414,12 @@ def iter_context_results(context, batch_size=10, task_cache=None):
             yield key.id(), task
 
 
-def iget_batches(task_ids, batch_size=10):
+def iget_batches(context_id, task_ids, batch_size=10):
     """Yield out a map of the keys and futures in batches of the batch size
     passed in.
     """
-
-    make_key = lambda _id: ndb.Key(FuriousAsyncMarker, _id)
+    context_key = FuriousCompletionMarker.full_key(context_id)
+    make_key = lambda _id: ndb.Key(FuriousAsyncMarker, _id, parent=context_key)
     for keys in i_batch(imap(make_key, task_ids), batch_size):
         yield izip(keys, ndb.get_multi_async(keys))
 

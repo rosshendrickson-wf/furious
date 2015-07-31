@@ -177,22 +177,24 @@ def _query_check(context_id):
     try:
         context = get_current_context()
     except errors.NotInContextError:
-        return False
+        context = FuriousContext.from_id(context_id)
 
     if not context:
+        logging.info("_query_check: Unable to find context %s ", context_id)
         return False
 
     context_key = ndb.Key(FuriousCompletionMarker, context_id)
 
     query = FuriousAsyncMarker.query(ancestor=context_key)
-    results = query.fetch(keys_only=True)
+    result = len(query.fetch(keys_only=True))
+    num_tasks = len(context.task_ids)
 
-    if len(results) == len(context.task_ids):
-        logging.info("finally complete")
+    if result == num_tasks:
+        logging.info("_query_check: Finally complete %s:%s", num_tasks, result)
         return True
 
-    logging.info("Incomplete context %s %s:%s", context_id,
-                 len(context.task_ids), len(results))
+    logging.info("_query_check: Incomplete context %s %s:%s", context_id,
+                 num_tasks, result)
 
 
 def _completion_checker(async_id, context_id):
@@ -212,17 +214,20 @@ def _completion_checker(async_id, context_id):
         logging.info("Context %s already complete" % context_id)
         return True
 
-    done, has_errors = _check_markers(context.task_ids)
+    done, has_errors = _check_markers(context_id, context.task_ids)
 
     if not done:
         return False
 
-    _mark_context_complete(marker, context, has_errors)
+    result = _mark_context_complete(marker, context, has_errors)
 
-    return True
+    if result:
+        logging.info("Context %s complete" % context_id)
+
+    return result
 
 
-def _check_markers(task_ids, offset=10):
+def _check_markers(context_id, task_ids, offset=10):
     """Returns a flag for markers being found for the task_ids. If all task ids
     have markers True will be returned. Otherwise it will return False as soon
     as a None result is hit.
@@ -230,9 +235,10 @@ def _check_markers(task_ids, offset=10):
 
     shuffle(task_ids)
     has_errors = False
+    context_key = ndb.Key(FuriousCompletionMarker, context_id)
 
     for index in xrange(0, len(task_ids), offset):
-        keys = [ndb.Key(FuriousAsyncMarker, id)
+        keys = [ndb.Key(FuriousAsyncMarker, id, parent=context_key)
                 for id in task_ids[index:index + offset]]
 
         markers = ndb.get_multi(keys)

@@ -52,7 +52,8 @@ class FuriousContext(ndb.Model):
     @classmethod
     def from_context(cls, context):
         """Create a `cls` entity from a context."""
-        return cls(id=context.id, context=context.to_dict())
+        #key = ndb.Key('FuriousContext', id)
+        return cls(id=context.id, context=context.to_dict())#, parent=key)
 
     @classmethod
     def from_id(cls, id):
@@ -75,6 +76,14 @@ class FuriousContext(ndb.Model):
 
         return Context.from_dict(entity.context)
 
+    @classmethod
+    def full_key(cls, id):
+        """Build a key for the context so that the context will be in its own
+        entity group"""
+
+        key = ndb.Key('FuriousContext', id)
+        return ndb.Key('FuriousContext', id, parent=key)
+
 
 class FuriousAsyncMarker(ndb.Model):
     """This entity serves as a 'complete' marker."""
@@ -93,6 +102,14 @@ class FuriousCompletionMarker(ndb.Model):
 
     complete = ndb.BooleanProperty(default=False, indexed=False)
     has_errors = ndb.BooleanProperty(default=False, indexed=False)
+
+    @classmethod
+    def full_key(cls, id):
+        """Build a key for the context so that the context will be in its own
+        entity group"""
+
+        key = ndb.Key('FuriousCompletionMarker', id)
+        return ndb.Key('FuriousCompletionMarker', id, parent=key)
 
 
 class ContextResult(ContextResultBase):
@@ -191,7 +208,7 @@ def _query_check(context_id):
         logging.info("_query_check: Unable to find context %s ", context_id)
         return False
 
-    context_key = ndb.Key(FuriousCompletionMarker, context_id)
+    context_key = FuriousCompletionMarker.full_key(context_id)
 
     query = FuriousAsyncMarker.query(ancestor=context_key)
     result = len(query.fetch(keys_only=True))
@@ -243,7 +260,7 @@ def _check_markers(context_id, task_ids, offset=10):
 
     shuffle(task_ids)
     has_errors = False
-    context_key = ndb.Key(FuriousCompletionMarker, context_id)
+    context_key = FuriousCompletionMarker.full_key(context_id)
 
     for index in xrange(0, len(task_ids), offset):
         keys = [ndb.Key(FuriousAsyncMarker, id, parent=context_key)
@@ -361,7 +378,7 @@ def store_async_result(async):
         _save_async_results(async.id, result, status)
         return
 
-    context_key = ndb.Key(FuriousCompletionMarker, async.context_id)
+    context_key = FuriousCompletionMarker.full_key(async.context_id)
     _save_async_results(async.id, result, status, context_key)
 
 

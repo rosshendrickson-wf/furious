@@ -132,13 +132,13 @@ def encode_callbacks(callbacks):
 
     encoded_callbacks = {}
     for event, callback in callbacks.iteritems():
-        handler, async = callback
+        handler = callback
         if callable(handler):
             callback, _ = get_function_path_and_options(handler)
 
         elif isinstance(handler, Async):
             callback = handler.to_dict()
-            callback['async'] = async
+            #callback['async'] = async
 
         encoded_callbacks[event] = callback
 
@@ -151,19 +151,19 @@ def decode_callbacks(encoded_callbacks):
 
     callbacks = {}
     for event, callback in encoded_callbacks.iteritems():
-        async = True
+        #async = True
         if isinstance(callback, dict):
             async_type = Async
             if '_type' in callback:
                 async_type = path_to_reference(callback['_type'])
 
-            if 'async' in callback:
-                async = callback.pop('async')
+            #if 'async' in callback:
+            #    async = callback.pop('async')
             callback = async_type.from_dict(callback)
         else:
             callback = path_to_reference(callback)
 
-        callbacks[event] = callback, async
+        callbacks[event] = callback#, async
 
     return callbacks
 

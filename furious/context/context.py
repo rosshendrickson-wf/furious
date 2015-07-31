@@ -202,7 +202,7 @@ class Context(object):
         self._persistence_engine = get_default_persistence_engine()
 
     # TODO: BIG TODO TODO TODO should default to TRUE.. only for a quick bench
-    def set_event_handler(self, event, handler, async=True):
+    def set_event_handler(self, event, handler):
         """Add an Async to be run on event."""
         # QUESTION: Should we raise an exception if `event` is not in some
         # known event-type list?
@@ -210,7 +210,7 @@ class Context(object):
         self._prepare_persistence_engine()
 
         callbacks = self._options.get('callbacks', {})
-        callbacks[event] = (handler, async)
+        callbacks[event] = handler#async)
         self._options['callbacks'] = callbacks
 
     def exec_event_handler(self, event, transactional=False):
@@ -220,7 +220,7 @@ class Context(object):
 
         callbacks = self._options.get('callbacks', {})
 
-        handler, async = callbacks.get(event)
+        handler = callbacks.get(event)
 
         if not handler:
             raise Exception('Handler not defined!!!')

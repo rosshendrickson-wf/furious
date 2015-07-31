@@ -59,8 +59,16 @@ class FuriousContext(ndb.Model):
         """Load a `cls` entity and instantiate the Context it stores."""
         from furious.context import Context
 
-        # TODO: Handle exceptions and retries here.
         entity = cls.get_by_id(id)
+
+        # TODO: Handle exceptions and retries here.
+#        @ndb.transactional(xg=True)
+#        def get_entity():
+#            #return cls.get_by_id(id)
+#            return ndb.Key('FuriousContext', id).get()
+
+#        entity = get_entity()
+
         if not entity:
             raise FuriousContextNotFoundError(
                 "Context entity not found for: {}".format(id))

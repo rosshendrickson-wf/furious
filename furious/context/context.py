@@ -201,7 +201,8 @@ class Context(object):
 
         self._persistence_engine = get_default_persistence_engine()
 
-    def set_event_handler(self, event, handler):
+    # TODO: BIG TODO TODO TODO should default to TRUE.. only for a quick bench
+    def set_event_handler(self, event, handler, async=True):
         """Add an Async to be run on event."""
         # QUESTION: Should we raise an exception if `event` is not in some
         # known event-type list?
@@ -209,7 +210,7 @@ class Context(object):
         self._prepare_persistence_engine()
 
         callbacks = self._options.get('callbacks', {})
-        callbacks[event] = handler
+        callbacks[event] = (handler, async)
         self._options['callbacks'] = callbacks
 
     def exec_event_handler(self, event, transactional=False):
@@ -219,12 +220,24 @@ class Context(object):
 
         callbacks = self._options.get('callbacks', {})
 
-        handler = callbacks.get(event)
+        handler, async = callbacks.get(event)
 
         if not handler:
             raise Exception('Handler not defined!!!')
 
+        #if async:
         handler.start(transactional=transactional)
+
+        #self._exec_inline_async(handler)
+
+    def _exec_inline_async(self, async):
+        """Will execute a callback inside of the task instead of inserting it
+        """
+        from furious.processors import _run_job
+        import logging
+
+        logging.info("Executing callback in-line")
+        _run_job(async)
 
     def add(self, target, args=None, kwargs=None, **options):
         """Add an Async job to this context.

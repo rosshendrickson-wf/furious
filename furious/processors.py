@@ -36,6 +36,13 @@ AsyncException = namedtuple('AsyncException', 'error args traceback exception')
 def run_job():
     """Takes an async object and executes its job."""
     async = get_current_async()
+
+    return _run_job(async)
+
+
+def _run_job(async):
+    """Takes an async object and executes its job."""
+
     async_options = async.get_options()
 
     job = async_options.get('job')

@@ -356,7 +356,8 @@ def store_context(context):
     entity = FuriousContext.from_context(context)
 
     # TODO: Handle exceptions and retries here.
-    marker = FuriousCompletionMarker(id=context.id)
+    context_key = FuriousCompletionMarker.full_key(context.id)
+    marker = FuriousCompletionMarker(id=context.id, parent=context_key)
     key, _ = ndb.put_multi((entity, marker))
 
     logging.debug("Stored Context with key: %s.", key)

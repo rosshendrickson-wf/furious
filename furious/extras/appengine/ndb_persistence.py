@@ -20,6 +20,8 @@ import json
 import logging
 import os
 
+from hash_ring import HashRing
+
 from itertools import imap
 from itertools import islice
 from itertools import izip
@@ -38,6 +40,9 @@ CLEAN_QUEUE = config.get_completion_cleanup_queue()
 DEFAULT_QUEUE = config.get_completion_default_queue()
 CLEAN_DELAY = config.get_completion_cleanup_delay()
 QUEUE_HEADER = 'HTTP_X_APPENGINE_QUEUENAME'
+
+SPOTS = xrange(0, 20)
+RING = HashRing(SPOTS)
 
 
 class FuriousContextNotFoundError(Exception):
@@ -87,6 +92,26 @@ class FuriousAsyncMarker(ndb.Model):
     def success(self):
         from furious.async import AsyncResult
         return self.status != AsyncResult.ERROR
+
+    @classmethod
+    def full_key(cls, async_id, context_id):
+        """Build a full key accounting for the context and async_id"""
+        key = FuriousAsyncMarker.parent_key(async_id, context_id)
+        return ndb.Key(FuriousAsyncMarker, async_id, parent=key)
+
+    @classmethod
+    def parent_id(cls, async_id, context_id):
+        return str(RING.get_node(async_id + context_id)) + context_id
+
+    @classmethod
+    def parent_key(cls, async_id, context_id):
+        parent_id = FuriousAsyncMarker.parent_id(async_id, context_id)
+        #logging.info("Parent id for {} is {}".format(async_id, parent_id))
+        return ndb.Key(FuriousCompletionMarker, parent_id)
+
+    @classmethod
+    def from_id(cls, async_id, context_id):
+        return cls.full_key(async_id, context_id).get()
 
 
 class FuriousCompletionMarker(ndb.Model):
@@ -166,7 +191,7 @@ def context_completion_checker(async):
     logging.debug("Check completion for: %s", async.context_id)
 
     # Check if we are complete
-    complete = _query_check(async.context_id)
+    complete = True #_query_check(async.context_id)
 
     if complete:
         logging.info("Context complete. Running marker check")
@@ -276,10 +301,10 @@ def _check_markers(context_id, task_ids, offset=10):
 
     shuffle(task_ids)
     has_errors = False
-    context_key = FuriousCompletionMarker.full_key(context_id)
+    #context_key = FuriousCompletionMarker.full_key(context_id)
 
     for index in xrange(0, len(task_ids), offset):
-        keys = [ndb.Key(FuriousAsyncMarker, id, parent=context_key)
+        keys = [FuriousAsyncMarker.full_key(id, context_id)
                 for id in task_ids[index:index + offset]]
 
         markers = ndb.get_multi(keys)
@@ -347,7 +372,8 @@ def _cleanup_markers(context_id, task_ids):
                   len(task_ids), context_id)
 
     # TODO: Handle exceptions and retries here.
-    delete_entities = [ndb.Key(FuriousAsyncMarker, id) for id in task_ids]
+    delete_entities = [FuriousAsyncMarker.full_key(id, context_id)
+                       for id in task_ids]
     delete_entities.append(ndb.Key(FuriousCompletionMarker, context_id))
 
     ndb.delete_multi(delete_entities)
@@ -394,15 +420,15 @@ def store_async_result(async):
         _save_async_results(async.id, result, status)
         return
 
-    context_key = FuriousCompletionMarker.full_key(async.context_id)
-    _save_async_results(async.id, result, status, context_key)
+    parent_key = FuriousAsyncMarker.parent_key(async.id, async.context_id)
+    _save_async_results(async.id, async.context_id, result, status, parent_key)
 
 
-def _save_async_results(async_id, result, status, parent_key=None):
+def _save_async_results(async_id, context_id, result, status, parent_key=None):
     """Will save the marker if there is not an already existing marker"""
 
     # QUESTION: Do we trust if the marker had a flag result to just trust it?
-    marker = FuriousAsyncMarker.get_by_id(async_id)
+    marker = FuriousAsyncMarker.from_id(async_id, context_id)
 
     if marker:
         logging.debug("Marker already exists for %s.", async_id)
@@ -433,8 +459,7 @@ def iget_batches(context_id, task_ids, batch_size=10):
     """Yield out a map of the keys and futures in batches of the batch size
     passed in.
     """
-    context_key = FuriousCompletionMarker.full_key(context_id)
-    make_key = lambda _id: ndb.Key(FuriousAsyncMarker, _id, parent=context_key)
+    make_key = lambda _id: FuriousAsyncMarker.full_key(_id, context_id)
     for keys in i_batch(imap(make_key, task_ids), batch_size):
         yield izip(keys, ndb.get_multi_async(keys))
 

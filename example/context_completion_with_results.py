@@ -65,15 +65,15 @@ def context_complete(context_id):
     logging.info('Context %s is.......... DONE.', context_id)
 
     from furious.context import get_current_async_with_context
-#
-#    _, context = get_current_async_with_context()
-#
-#    if not context:
-#        logging.error("Could not load context")
-#        return
-#
-#    for task_id, result in context.result.items():
-#        logging.info("#########################")
-#        logging.info("Task Id: %s and Result: %s", task_id, result)
-#
+
+    _, context = get_current_async_with_context()
+
+    if not context:
+        logging.error("Could not load context")
+        return
+
+    for task_id, result in context.result.items():
+        logging.info("#########################")
+        logging.info("Task Id: %s and Result: %s", task_id, result)
+
     return context_id

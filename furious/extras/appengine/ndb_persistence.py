@@ -41,7 +41,7 @@ DEFAULT_QUEUE = config.get_completion_default_queue()
 CLEAN_DELAY = config.get_completion_cleanup_delay()
 QUEUE_HEADER = 'HTTP_X_APPENGINE_QUEUENAME'
 
-SPOTS = xrange(0, 20)
+SPOTS = range(0, 20)
 RING = HashRing(SPOTS)
 
 
@@ -191,14 +191,14 @@ def context_completion_checker(async):
     logging.debug("Check completion for: %s", async.context_id)
 
     # Check if we are complete
-    complete = True #_query_check(async.context_id)
+    complete = _query_check(async.context_id)
 
     if complete:
         logging.info("Context complete. Running marker check")
         return _completion_checker(async.id, async.context_id)
 
     # If we were not complete then insert the tail behind
-    _insert_completion_checker(async.id, async.context_id)
+    _insert_completion_checker(async.id, async.context_id, retry=3)
 
     return True
 
@@ -213,7 +213,7 @@ def _insert_completion_checker(async_id, context_id, retry=None):
     name = context_id
 
     if retry:
-        name = "-".join(context_id, str(retry))
+        name = "-".join((context_id, str(retry)))
 
     Async(_completion_checker, queue=current_queue,
           args=(async_id, context_id, retry),
@@ -240,24 +240,39 @@ def _query_check(context_id):
         logging.info("_query_check: Unable to find context %s ", context_id)
         return False
 
-    context_key = FuriousCompletionMarker.full_key(context_id)
-
-    query = FuriousAsyncMarker.query(ancestor=context_key)
-    result = len(query.fetch(keys_only=True))
     num_tasks = len(context.task_ids)
+    total_found = 0
+    queries = gen_query_async(context_id)
 
-    if result == num_tasks:
-        logging.info("_query_check: Finally complete %s:%s", num_tasks, result)
-        return True
+    for query in queries:
+        total_found += len(query.fetch(keys_only=True))
+        if total_found == num_tasks:
+            logging.info("_query_check: Finally complete %s:%s", num_tasks,
+                         total_found)
+            return True
 
     logging.info("_query_check: Incomplete context %s %s:%s", context_id,
-                 num_tasks, result)
+                 num_tasks, total_found)
+
+
+def gen_query_async(context_id):
+    """Will yield out the  for the given markers"""
+
+    shards = SPOTS[0:]
+    shuffle(shards)
+    for spot in shards:
+        parent_id = str(spot) + context_id
+        key = ndb.Key(FuriousCompletionMarker, parent_id)
+        yield FuriousAsyncMarker.query(ancestor=key)
+    #query = FuriousAsyncMarker.query(ancestor=context_key)
+    #result = len(query.fetch(keys_only=True))
 
 
 def _completion_checker(async_id, context_id, retry=None):
     """Check if all Async jobs within a Context have been run."""
 
     if retry:
+        logging.info("Tries left %s" % retry)
         retry = retry - 1
 
     if not context_id:
@@ -301,7 +316,6 @@ def _check_markers(context_id, task_ids, offset=10):
 
     shuffle(task_ids)
     has_errors = False
-    #context_key = FuriousCompletionMarker.full_key(context_id)
 
     for index in xrange(0, len(task_ids), offset):
         keys = [FuriousAsyncMarker.full_key(id, context_id)

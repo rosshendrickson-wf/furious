@@ -52,23 +52,15 @@ class FuriousContext(ndb.Model):
     @classmethod
     def from_context(cls, context):
         """Create a `cls` entity from a context."""
-        #key = ndb.Key('FuriousContext', id)
-        return cls(id=context.id, context=context.to_dict())#, parent=key)
+        key = ndb.Key(FuriousContext, context.id)
+        return cls(id=context.id, context=context.to_dict(), parent=key)
 
     @classmethod
     def from_id(cls, id):
         """Load a `cls` entity and instantiate the Context it stores."""
         from furious.context import Context
 
-        entity = cls.get_by_id(id)
-
-        # TODO: Handle exceptions and retries here.
-#        @ndb.transactional(xg=True)
-#        def get_entity():
-#            #return cls.get_by_id(id)
-#            return ndb.Key('FuriousContext', id).get()
-
-#        entity = get_entity()
+        entity = cls.full_key(id).get()
 
         if not entity:
             raise FuriousContextNotFoundError(
@@ -108,8 +100,14 @@ class FuriousCompletionMarker(ndb.Model):
         """Build a key for the context so that the context will be in its own
         entity group"""
 
-        key = ndb.Key('FuriousCompletionMarker', id)
-        return ndb.Key('FuriousCompletionMarker', id, parent=key)
+        key = ndb.Key(FuriousCompletionMarker, id)
+        return ndb.Key(FuriousCompletionMarker, id, parent=key)
+
+    @classmethod
+    def from_id(cls, id):
+        """Helper to pull down the right marker"""
+
+        return FuriousCompletionMarker.full_key(id).get()
 
 
 class ContextResult(ContextResultBase):
@@ -132,9 +130,7 @@ class ContextResult(ContextResultBase):
     @property
     def _completion_marker(self):
         if not self._marker:
-
-            context_key = FuriousCompletionMarker.full_key(self._context.id)
-            self._marker = context_key.get()
+            self._marker = FuriousCompletionMarker.from_id(self._context.id)
 
         return self._marker
 
@@ -177,16 +173,26 @@ def context_completion_checker(async):
         return _completion_checker(async.id, async.context_id)
 
     # If we were not complete then insert the tail behind
+    _insert_completion_checker(async.id, async.context_id)
+
+    return True
+
+
+def _insert_completion_checker(async_id, context_id, retry=None):
+    """Wrapper around inserting a task to check completion"""
     from furious.async import Async
 
     current_queue = _get_current_queue()
-
     logging.debug("Completion Check queue:%s", current_queue)
-    Async(_completion_checker, queue=current_queue,
-          args=(async.id, async.context_id,
-                ), task_args={'name': async.context_id}).start()
 
-    return True
+    name = context_id
+
+    if retry:
+        name = "-".join(context_id, str(retry))
+
+    Async(_completion_checker, queue=current_queue,
+          args=(async_id, context_id, retry),
+          task_args={'name': name}).start()
 
 
 def _get_current_queue():
@@ -223,17 +229,23 @@ def _query_check(context_id):
                  num_tasks, result)
 
 
-def _completion_checker(async_id, context_id):
+def _completion_checker(async_id, context_id, retry=None):
     """Check if all Async jobs within a Context have been run."""
+
+    if retry:
+        retry = retry - 1
 
     if not context_id:
         logging.debug("Context for async %s does not exist", async_id)
         return
 
     context = FuriousContext.from_id(context_id)
-    marker = FuriousCompletionMarker.get_by_id(context_id)
+    marker = FuriousCompletionMarker.from_id(context_id)
 
     if not marker:
+        logging.info("No marker found for context_id %s", context_id)
+        if retry and retry > 0:
+            _insert_completion_checker(async_id, context_id, retry)
         return False
 
     if marker and marker.complete:
@@ -243,6 +255,9 @@ def _completion_checker(async_id, context_id):
     done, has_errors = _check_markers(context_id, context.task_ids)
 
     if not done:
+        if retry and retry > 0:
+            _insert_completion_checker(async_id, context_id, retry)
+
         return False
 
     result = _mark_context_complete(marker, context, has_errors)
@@ -356,10 +371,9 @@ def store_context(context):
     entity = FuriousContext.from_context(context)
 
     # TODO: Handle exceptions and retries here.
-    context_key = FuriousCompletionMarker.full_key(context.id)
+    context_key = ndb.Key(FuriousCompletionMarker, context.id)
     marker = FuriousCompletionMarker(id=context.id, parent=context_key)
     key, _ = ndb.put_multi((entity, marker))
-
     logging.debug("Stored Context with key: %s.", key)
 
     return key

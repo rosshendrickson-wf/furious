@@ -42,7 +42,8 @@ DEFAULT_QUEUE = config.get_completion_default_queue()
 CLEAN_DELAY = config.get_completion_cleanup_delay()
 QUEUE_HEADER = 'HTTP_X_APPENGINE_QUEUENAME'
 
-SPOTS = range(0, 20)
+RING_SIZE = 10
+SPOTS = range(0, RING_SIZE)
 RING = HashRing(SPOTS)
 
 
@@ -107,7 +108,6 @@ class FuriousAsyncMarker(ndb.Model):
     @classmethod
     def parent_key(cls, async_id, context_id):
         parent_id = FuriousAsyncMarker.parent_id(async_id, context_id)
-        #logging.info("Parent id for {} is {}".format(async_id, parent_id))
         return ndb.Key(FuriousCompletionMarker, parent_id)
 
     @classmethod
@@ -195,7 +195,7 @@ def context_completion_checker(async):
     complete = _query_check(async.context_id)
 
     if complete:
-        logging.info("Context complete. Running marker check")
+        logging.debug("Complete Query complete. Running marker check")
         return _completion_checker(async.id, async.context_id)
 
     # If we were not complete then insert the tail behind
@@ -238,7 +238,7 @@ def _query_check(context_id):
         context = FuriousContext.from_id(context_id)
 
     if not context:
-        logging.info("_query_check: Unable to find context %s ", context_id)
+        logging.debug("_query_check: Unable to find context %s ", context_id)
         return False
 
     num_tasks = len(context.task_ids)
@@ -250,14 +250,14 @@ def _query_check(context_id):
         total_found += len(query.get_result())
         if total_found == num_tasks:
             finished = time.time() - start_time
-            logging.info("_query_check: completed %s %s:%s query time: %s",
-                         context_id, num_tasks, total_found, finished)
+            logging.debug("_query_check: completed %s %s:%s query time: %s",
+                          context_id, num_tasks, total_found, finished)
 
             return True
 
     finished = time.time() - start_time
-    logging.info("_query_check: incomplete %s %s:%s query time: %s",
-                 context_id, num_tasks, total_found, finished)
+    logging.debug("_query_check: incomplete %s %s:%s query time: %s",
+                  context_id, num_tasks, total_found, finished)
 
 
 def gen_query_async(context_id):
@@ -280,8 +280,8 @@ def _completion_checker(async_id, context_id, retry=None):
     """Check if all Async jobs within a Context have been run."""
 
     if retry:
-        logging.info("Tries left %s" % retry)
         retry = retry - 1
+        logging.debug("Tries left %s" % retry)
 
     if not context_id:
         logging.debug("Context for async %s does not exist", async_id)
@@ -291,13 +291,13 @@ def _completion_checker(async_id, context_id, retry=None):
     marker = FuriousCompletionMarker.from_id(context_id)
 
     if not marker:
-        logging.info("No marker found for context_id %s", context_id)
+        logging.debug("No marker found for context_id %s", context_id)
         if retry and retry > 0:
             _insert_completion_checker(async_id, context_id, retry)
         return False
 
     if marker and marker.complete:
-        logging.info("Context %s already complete" % context_id)
+        logging.debug("Context %s already complete" % context_id)
         return True
 
     done, has_errors = _check_markers(context_id, context.task_ids)
@@ -305,13 +305,13 @@ def _completion_checker(async_id, context_id, retry=None):
     if not done:
         if retry and retry > 0:
             _insert_completion_checker(async_id, context_id, retry)
-
+        logging.debug("Context %s incomplete" % context_id)
         return False
 
     result = _mark_context_complete(marker, context, has_errors)
 
     if result:
-        logging.info("Context %s complete" % context_id)
+        logging.debug("Context %s complete" % context_id)
 
     return result
 

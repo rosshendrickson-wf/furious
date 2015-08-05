@@ -19,6 +19,7 @@ persistence operations backed by the App Engine ndb library.
 import json
 import logging
 import os
+import time
 
 from hash_ring import HashRing
 
@@ -242,17 +243,21 @@ def _query_check(context_id):
 
     num_tasks = len(context.task_ids)
     total_found = 0
-    queries = gen_query_async(context_id)
+    async_queries = gen_query_async(context_id)
 
-    for query in queries:
-        total_found += len(query.fetch(keys_only=True))
+    start_time = time.time()
+    for query in async_queries:
+        total_found += len(query.get_result())
         if total_found == num_tasks:
-            logging.info("_query_check: Finally complete %s:%s", num_tasks,
-                         total_found)
+            finished = time.time() - start_time
+            logging.info("_query_check: completed %s %s:%s query time: %s",
+                         context_id, num_tasks, total_found, finished)
+
             return True
 
-    logging.info("_query_check: Incomplete context %s %s:%s", context_id,
-                 num_tasks, total_found)
+    finished = time.time() - start_time
+    logging.info("_query_check: incomplete %s %s:%s query time: %s",
+                 context_id, num_tasks, total_found, finished)
 
 
 def gen_query_async(context_id):
@@ -260,12 +265,15 @@ def gen_query_async(context_id):
 
     shards = SPOTS[0:]
     shuffle(shards)
+    queries = []
     for spot in shards:
         parent_id = str(spot) + context_id
         key = ndb.Key(FuriousCompletionMarker, parent_id)
-        yield FuriousAsyncMarker.query(ancestor=key)
-    #query = FuriousAsyncMarker.query(ancestor=context_key)
-    #result = len(query.fetch(keys_only=True))
+        queries.append(FuriousAsyncMarker.query(ancestor=key))
+
+    #shuffle(queries)
+    for query in queries:
+        yield query.fetch_async(keys_only=True)
 
 
 def _completion_checker(async_id, context_id, retry=None):

@@ -51,6 +51,46 @@ class FuriousContextNotFoundError(Exception):
     """FuriousContext entity not found in the datastore."""
 
 
+class FuriousContextFailed(ndb.Model):
+    """Simple Context to mark if we hit a failure for a given context"""
+
+    @classmethod
+    def from_id(cls, id):
+        """will build the appropriate key and perform a datastore get"""
+        return cls.full_key(id).get()
+
+    @classmethod
+    def full_key(cls, id):
+        key = cls.parent_key(id)
+        return ndb.Key(FuriousContextFailed, id, parent=key)
+
+    @classmethod
+    def parent_key(cls, id):
+        return FuriousCompletionMarker.full_key(id)
+
+    @classmethod
+    def mark_context_failed(context_id):
+        """Will create the context failed marker if needed"""
+
+        marker = FuriousContextFailed.from_id(context_id)
+        if marker:
+            return
+
+        parent_key = FuriousContextFailed.parent_key(context_id)
+        return FuriousContextFailed(id=context_id, parent=parent_key)
+
+    @classmethod
+    def check_context_failed(cls, context_id):
+        """Will use a Keys only ancestor query to see if we've failed or not"""
+
+        key = cls.parent_key(context_id)
+        query = FuriousAsyncMarker.query(ancestor=key)
+
+        result = query.fetch(keys_only=True)
+        if len(result) > 0:
+            return True
+
+
 class FuriousContext(ndb.Model):
     """NDB entity to store a Furious Context as JSON."""
 
@@ -321,6 +361,11 @@ def _check_markers(context_id, task_ids, offset=10):
     have markers True will be returned. Otherwise it will return False as soon
     as a None result is hit.
     """
+    existing_failure = FuriousContextFailed.check_context_failed(context_id)
+    if existing_failure:
+        return True, True
+
+    return True, False
 
     shuffle(task_ids)
     has_errors = False
@@ -458,11 +503,22 @@ def _save_async_results(async_id, context_id, result, status, parent_key=None):
         logging.debug("Marker already exists for %s.", async_id)
         return
 
-    key = FuriousAsyncMarker(
-        id=async_id, result=result, status=status, parent=parent_key).put()
+    marker = FuriousAsyncMarker(
+        id=async_id, result=result, status=status, parent=parent_key)
 
+    fail_marker = None
+    if not marker.success:
+        existing_failure = FuriousContextFailed.check_context_failed(context_id)
+        if not existing_failure:
+            fail_marker = FuriousContextFailed.mark_context_failed(context_id)
+
+    if fail_marker:
+        ndb.put_multi((marker, fail_marker))
+        return
+
+    marker.put()
     logging.debug("Setting Async result %s using marker: %s to status %s.",
-                  result, key, status)
+                  result, id, status)
 
 
 def iter_context_results(context, batch_size=10, task_cache=None):

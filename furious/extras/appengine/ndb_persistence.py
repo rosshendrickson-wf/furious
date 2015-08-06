@@ -338,6 +338,8 @@ def _check_markers(context_id, task_ids, offset=10):
         # Did any of the aync's fail? Check the success property on the
         # AsyncResult.
         has_errors = not all((marker.success for marker in markers))
+        if has_errors:
+            return True, has_errors
 
     return True, has_errors
 

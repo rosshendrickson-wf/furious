@@ -256,10 +256,10 @@ def _insert_completion_checker(async_id, context_id, retry=None):
     if retry:
         name = "-".join((context_id, str(retry)))
 
-    Async(_completion_checker, queue=current_queue,
-          args=(async_id, context_id, retry),
-          task_args={'name': name}).start()
-
+#    Async(_completion_checker, queue=current_queue,
+#          args=(async_id, context_id, retry),
+#          task_args={'name': name}).start()
+#
 
 def _get_current_queue():
     """Pull out the queue from the environment"""
